@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "agileautomation.omafloat",
+  "name": "OmaFloat",
+  "version": "1.0.0",
+  "author": "Agile Automation",
+  "license": "MIT",
+  "description": "Pop-ups that stay put. Draw a box once for wallet prompts, print dialogs, confirmations, email compose windows, and other floats — OmaFloat restores that size and position next time, without touching your tiled layout.",
+  "homepage": "https://github.com/unipsycho/omarchy-omafloat",
+  "repository": "https://github.com/unipsycho/omarchy-omafloat",
+  "keywords": [
+    "float",
+    "window",
+    "geometry",
+    "hyprland",
+    "position",
+    "remember",
+    "dialog",
+    "popup",
+    "slurp",
+    "restore",
+    "OmaFloat",
+    "bar-widget"
+  ],
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaFloat",
+    "description": "Pop-ups that stay put.",
+    "category": "Window management",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
