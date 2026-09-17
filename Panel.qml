@@ -27,7 +27,7 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   // Keep in sync with bindings-snippet.lua / user bindings.lua
-  readonly property string captureHotkey: "Super+Shift+O"
+  readonly property string captureHotkey: "Super+Alt+O"
 
   function open() {
     reloadRows()

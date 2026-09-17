@@ -4,8 +4,8 @@ Omarchy plugin by **Agile Automation** — **pop-ups that stay put.**
 
 Web3 wallet prompts, print dialogs, confirmation boxes, email compose windows,
 and other pop-ups often open in awkward places. With OmaFloat you draw a box
-once; next time that app opens, it returns to the same size and position.
-Your tiled windows stay as they are — this only remembers float geometry.
+once; next time that app opens, it returns to the same size and position —
+without moving your other windows around.
 
 ![OmaFloat demo — draw a float box, save the layout, reopen to restore](media/demo.gif)
 
@@ -48,9 +48,9 @@ hyprctl reload
 hyprctl configerrors
 ```
 
-Default chord: **Super+Shift+O**
+Default chord: **Super+Alt+O**
 
-(`Super+O` stays pop-out & pin. Note: this replaces the stock **Obsidian** bind on Super+Shift+O.)
+(`Super+O` remains pop-out & pin.)
 
 1. Focus a window and press the hotkey
 2. You’ll get a notification: “Draw a box for the float layout”
@@ -101,7 +101,7 @@ node tests/store-geometry-test.js
 ```bash
 omarchy plugin remove agileautomation.omafloat
 rm -rf ~/.local/state/omarchy/omafloat
-# remove the Super+Shift+O bind from ~/.config/hypr/bindings.lua (and restore Obsidian if you want it)
+# remove the Super+Alt+O bind from ~/.config/hypr/bindings.lua
 ```
 
 ## License
