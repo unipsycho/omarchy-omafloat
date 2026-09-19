@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "agileautomation.omafloat",
   "name": "OmaFloat",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "Agile Automation",
   "license": "MIT",
-  "description": "Pop-ups that stay put. Draw a box once for wallet prompts, print dialogs, confirmations, email compose windows, and other pop-ups — OmaFloat restores that size and position next time, without moving your other windows around.",
+  "description": "Pop-ups that stay put. Draw a box once for wallet prompts, print dialogs, confirmations, email compose windows, and other pop-ups — OmaFloat restores that size and position next time, without moving your other windows around. Same-app windows are matched by title with a size gate so main windows are not shrunk.",
   "homepage": "https://github.com/unipsycho/omarchy-omafloat",
   "repository": "https://github.com/unipsycho/omarchy-omafloat",
   "keywords": [

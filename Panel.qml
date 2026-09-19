@@ -88,14 +88,29 @@ Panel {
     return String(row.monitor || "?") + "  " + row.w + "×" + row.h + "  @" + row.x + "," + row.y
   }
 
+  function classOfKey(key) {
+    var id = String(key || "")
+    var idx = id.indexOf("::")
+    return idx === -1 ? id : id.slice(0, idx)
+  }
+
+  function titleOfKey(key) {
+    var id = String(key || "")
+    var idx = id.indexOf("::")
+    return idx === -1 ? "" : id.slice(idx + 2)
+  }
+
   function displayNameFor(key) {
-    var entry = desktopEntryFor(key)
-    if (entry && entry.name) return String(entry.name)
-    return String(key || "")
+    var cls = classOfKey(key)
+    var title = titleOfKey(key)
+    var entry = desktopEntryFor(cls)
+    var appName = entry && entry.name ? String(entry.name) : (cls || String(key || ""))
+    if (title) return appName + " — " + title
+    return appName
   }
 
   function desktopEntryFor(key) {
-    var id = String(key || "").trim()
+    var id = classOfKey(key).trim()
     if (!id) return null
     try {
       return DesktopEntries.byId(id) || DesktopEntries.heuristicLookup(id)
@@ -123,7 +138,7 @@ Panel {
   }
 
   function iconFor(key) {
-    var id = String(key || "").trim()
+    var id = classOfKey(key).trim()
     if (!id) return Quickshell.iconPath("application-x-executable", true)
 
     var cacheKey = id.toLowerCase()

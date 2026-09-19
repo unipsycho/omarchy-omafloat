@@ -28,6 +28,7 @@ Item {
   property string capturePhase: "idle"
   property string pendingRestoreAddress: ""
   property string pendingRestoreClass: ""
+  property string pendingRestoreTitle: ""
 
   function notify(message) {
     if (notifyProc.running) return
@@ -125,37 +126,37 @@ Item {
     return "ok"
   }
 
-  function restoreAddress(address, className) {
-    var key = String(className || "").trim()
+  function restoreAddress(address, className, title) {
+    var cls = String(className || "").trim()
     var addr = Geometry.normalizeAddress(address)
-    var record = Store.getPosition(root.store, key)
-    if (!record || !addr) return
+    if (!cls || !addr) return
+    if (!Geometry.hasClassEntry(root.store, cls)) return
     root.pendingRestoreAddress = addr
-    root.pendingRestoreClass = key
+    root.pendingRestoreClass = cls
+    root.pendingRestoreTitle = Geometry.sanitizeTitle(title)
     restoreTimer.restart()
   }
 
   function runPendingRestore() {
     var address = root.pendingRestoreAddress
-    var key = root.pendingRestoreClass
+    var className = root.pendingRestoreClass
+    var title = root.pendingRestoreTitle
     root.pendingRestoreAddress = ""
     root.pendingRestoreClass = ""
-    if (!address || !key || !Geometry.isValidAddress(address)) return
+    root.pendingRestoreTitle = ""
+    if (!address || !className || !Geometry.isValidAddress(address)) return
 
-    var record = Store.getPosition(root.store, key)
-    if (!record) return
-
-    // Address/key arrive as argv ($1/$2) — never concatenate into the script body.
+    // Address/class/title arrive as argv — never concatenate into the script body.
     restoreProbe.command = ["bash", "-c",
-      'ADDR="$1"; KEY="$2"; ' +
+      'ADDR="$1"; CLASS="$2"; TITLE="$3"; ' +
       'CLIENT=$(hyprctl -j clients | jq -c --arg a "$ADDR" \'.[] | select(.address == $a or .address == ("0x"+$a) or (.address|tostring|ascii_downcase) == ($a|ascii_downcase))\'); ' +
       'MONS=$(hyprctl -j monitors); ' +
-      'printf \"%s\\n---\\n%s\\n---\\n%s\\n\" "$CLIENT" "$MONS" "$KEY"',
-      "bash", address, key]
+      'printf \"%s\\n---\\n%s\\n---\\n%s\\n---\\n%s\\n\" "$CLIENT" "$MONS" "$CLASS" "$TITLE"',
+      "bash", address, className, title]
     restoreProbe.running = true
   }
 
-  function applyParsedRestore(clientText, monitorsText, key) {
+  function applyParsedRestore(clientText, monitorsText, className, title) {
     var client = null
     var monitors = []
     try { client = JSON.parse(clientText) } catch (e1) { return }
@@ -163,20 +164,20 @@ Item {
     if (!client || !Geometry.isValidAddress(client.address)) return
 
     syncStoreFromDisk()
-    var record = Store.getPosition(root.store, key)
-      || Store.getPosition(root.store, Geometry.windowKey(client))
-      || Store.getPosition(root.store, String(client.class || ""))
-    if (!record) {
-      root.lastEvent = "restore-skipped:" + (key || Geometry.windowKey(client))
+    var cls = String(className || Geometry.windowClass(client) || "").trim()
+    var wantTitle = Geometry.sanitizeTitle(title) || Geometry.windowTitle(client)
+    var match = Geometry.findPosition(root.store, cls, wantTitle, client.size)
+    if (!match || !match.record) {
+      root.lastEvent = "restore-skipped:" + (Geometry.windowKey(client) || cls)
       return
     }
-    var placement = Geometry.resolvePlacement(record, monitors)
+    var placement = Geometry.resolvePlacement(match.record, monitors)
     if (!placement) return
 
     var script = Geometry.applyScript(client.address, placement, !!client.floating)
     if (!script) return
     runBash(script)
-    root.lastEvent = "restore:" + (key || Geometry.windowKey(client))
+    root.lastEvent = "restore:" + match.key
   }
 
   function handleHyprlandEvent(event) {
@@ -185,11 +186,12 @@ Item {
     var parts = Geometry.eventParts(event, 4)
     var address = Geometry.normalizeAddress(parts[0] || "")
     var className = String(parts[2] || "")
+    var title = String(parts[3] || "")
     if (!address || !className) return
     // Re-read disk before restore so panel/script forgets are never skipped.
     syncStoreFromDisk()
-    if (!Store.getPosition(root.store, className)) return
-    restoreAddress(address, className)
+    if (!Geometry.hasClassEntry(root.store, className)) return
+    restoreAddress(address, className, title)
   }
 
   function startCapture() {
@@ -316,13 +318,19 @@ Item {
     onExited: function(exitCode) {
       if (exitCode !== 0) return
       var chunks = String(restoreOut.text || "").split("\n---\n")
-      root.applyParsedRestore(chunks[0] || "", chunks[1] || "", String(chunks[2] || "").trim())
+      root.applyParsedRestore(
+        chunks[0] || "",
+        chunks[1] || "",
+        String(chunks[2] || "").trim(),
+        String(chunks[3] || "").trim()
+      )
     }
   }
 
   Timer {
     id: restoreTimer
-    interval: 80
+    // Give dialogs a moment to map their real size before the size gate runs.
+    interval: 120
     repeat: false
     onTriggered: root.runPendingRestore()
   }

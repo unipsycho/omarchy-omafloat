@@ -20,7 +20,19 @@ fi
 
 ACTIVE=$(hyprctl -j activewindow 2>/dev/null || true)
 ADDR=$(jq -r '.address // empty' <<<"$ACTIVE")
-KEY=$(jq -r '[.initialClass, .class] | map(select(. != null and . != "")) | first // empty' <<<"$ACTIVE")
+# Prefer class::title so same-app pop-ups (e.g. Thunderbird reminders) stay distinct.
+KEY=$(jq -r '
+  def sanitize:
+    gsub("::"; " - ")
+    | gsub("\\s+"; " ")
+    | gsub("^\\s+|\\s+$"; "")
+    | if length > 120 then .[0:120] else . end;
+  ((.initialClass // .class // "") | tostring | gsub("^\\s+|\\s+$"; "")) as $c
+  | (((.initialTitle // .title // "") | tostring | sanitize)) as $t
+  | if ($c | length) == 0 then empty
+    elif ($t | length) > 0 then "\($c)::\($t)"
+    else $c end
+' <<<"$ACTIVE")
 FLOATING=$(jq -r '.floating // false' <<<"$ACTIVE")
 PINNED=$(jq -r '.pinned // false' <<<"$ACTIVE")
 

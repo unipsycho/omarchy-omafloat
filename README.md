@@ -63,7 +63,8 @@ The bind runs the plugin script directly so capture still works if shell IPC is 
 ## Bar panel
 
 Click the OmaFloat bar icon to open **Remembered windows**. Each row shows the
-app icon, name, monitor, size, and position. The delete icon forgets that app.
+app icon, name (and window title when remembered), monitor, size, and position.
+The delete icon forgets that entry.
 
 ## How restore works
 
@@ -71,10 +72,17 @@ Saved geometry lives in:
 
 `~/.local/state/omarchy/omafloat/positions.json`
 
-When a window opens whose `initialClass`/`class` matches a saved entry, OmaFloat
-floats it and applies the remembered monitor-relative size and position.
+When a window opens, OmaFloat looks up a remembered layout for that app and —
+if the live window is still in the same size class as the save — floats it back
+to the remembered monitor-relative size and position.
 
-Apps that share one class share one layout.
+Keys are `class::title` when the window has a title (so Thunderbird reminders
+can be remembered separately from the main Thunderbird window). Legacy bare
+`class` keys still work. If the exact title is not found (event names change),
+OmaFloat falls back to the closest size-compatible layout for that class.
+
+A size gate skips restores when the new window is clearly much larger than the
+saved popup — so a reminder layout will not shrink the main app window.
 
 ## IPC
 

@@ -1,10 +1,132 @@
 // Window/monitor geometry helpers for omafloat.
 
-function windowKey(client) {
+var KEY_SEP = "::"
+// Reject restore when the live window is clearly larger than the saved popup.
+var SIZE_DIM_RATIO = 1.8
+var SIZE_AREA_RATIO = 2.5
+
+function windowClass(client) {
   if (!client || typeof client !== "object") return ""
   var initial = String(client.initialClass || "").trim()
   if (initial) return initial
   return String(client.class || "").trim()
+}
+
+function sanitizeTitle(title) {
+  var text = String(title || "")
+  // Keep keys JSON-safe and avoid colliding with the class::title separator.
+  text = text.replace(/::/g, " - ")
+  text = text.replace(/\s+/g, " ").trim()
+  if (!text) return ""
+  if (text.length > 120) text = text.slice(0, 120)
+  return text
+}
+
+function windowTitle(client) {
+  if (!client || typeof client !== "object") return ""
+  var initial = sanitizeTitle(client.initialTitle)
+  if (initial) return initial
+  return sanitizeTitle(client.title)
+}
+
+// Prefer class::title so pop-ups of the same app can keep separate layouts.
+function windowKey(client) {
+  var cls = windowClass(client)
+  if (!cls) return ""
+  var title = windowTitle(client)
+  if (title) return cls + KEY_SEP + title
+  return cls
+}
+
+function classOfKey(key) {
+  var id = String(key || "")
+  var idx = id.indexOf(KEY_SEP)
+  return idx === -1 ? id : id.slice(0, idx)
+}
+
+function titleOfKey(key) {
+  var id = String(key || "")
+  var idx = id.indexOf(KEY_SEP)
+  return idx === -1 ? "" : id.slice(idx + KEY_SEP.length)
+}
+
+function clientArea(size) {
+  if (!size || typeof size !== "object") return 0
+  var w = Math.max(0, Math.round(Number(size[0] || size.w) || 0))
+  var h = Math.max(0, Math.round(Number(size[1] || size.h) || 0))
+  return w * h
+}
+
+// True when the live window is still in the same "popup" size class as the save.
+function sizeCompatible(record, clientSize) {
+  if (!record) return false
+  var rw = Math.max(1, Math.round(Number(record.w) || 0))
+  var rh = Math.max(1, Math.round(Number(record.h) || 0))
+  if (!clientSize) return true
+  var cw = Math.max(0, Math.round(Number(clientSize[0] || clientSize.w) || 0))
+  var ch = Math.max(0, Math.round(Number(clientSize[1] || clientSize.h) || 0))
+  // Unknown size yet — allow and let a later probe decide.
+  if (cw < 1 || ch < 1) return true
+  if (cw > rw * SIZE_DIM_RATIO && ch > rh * SIZE_DIM_RATIO) return false
+  if (cw * ch > rw * rh * SIZE_AREA_RATIO) return false
+  return true
+}
+
+function keysForClass(store, className) {
+  var cls = String(className || "").trim()
+  var rows = []
+  if (!cls || !store || !store.positions) return rows
+  var prefix = cls + KEY_SEP
+  for (var key in store.positions) {
+    var record = store.positions[key]
+    if (!record || typeof record !== "object") continue
+    if (key === cls || key.indexOf(prefix) === 0) {
+      rows.push({ key: key, record: record })
+    }
+  }
+  return rows
+}
+
+function hasClassEntry(store, className) {
+  return keysForClass(store, className).length > 0
+}
+
+// Resolve the best remembered layout for an opening window.
+// Priority: exact class::title → bare class (legacy) → closest size-compatible sibling.
+function findPosition(store, className, title, clientSize) {
+  var cls = String(className || "").trim()
+  if (!cls || !store || !store.positions) return null
+
+  var wantTitle = sanitizeTitle(title)
+  var exactKey = wantTitle ? (cls + KEY_SEP + wantTitle) : ""
+  if (exactKey && store.positions[exactKey] && sizeCompatible(store.positions[exactKey], clientSize)) {
+    return { key: exactKey, record: store.positions[exactKey] }
+  }
+
+  if (store.positions[cls] && sizeCompatible(store.positions[cls], clientSize)) {
+    return { key: cls, record: store.positions[cls] }
+  }
+
+  var candidates = keysForClass(store, cls)
+  var best = null
+  var bestDelta = Infinity
+  var liveArea = clientArea(clientSize)
+  for (var i = 0; i < candidates.length; i++) {
+    var row = candidates[i]
+    if (!sizeCompatible(row.record, clientSize)) continue
+    // Prefer titled siblings over unrelated bare matches already handled above.
+    if (row.key === cls) continue
+    var savedArea = Math.max(1, Math.round(Number(row.record.w) || 0) * Math.round(Number(row.record.h) || 0))
+    // Prefer closest area; if size is unknown yet, prefer the newest sibling.
+    var delta = liveArea > 0
+      ? Math.abs(savedArea - liveArea)
+      : (1e15 - (Number(row.record.updatedAt) || 0))
+    if (!best || delta < bestDelta) {
+      best = row
+      bestDelta = delta
+    }
+  }
+  return best
 }
 
 function eventParts(event, count) {
@@ -226,7 +348,17 @@ function recordFromBox(key, box, monitors, pinned) {
 
 if (typeof module !== "undefined") {
   module.exports = {
+    KEY_SEP: KEY_SEP,
+    windowClass: windowClass,
+    windowTitle: windowTitle,
+    sanitizeTitle: sanitizeTitle,
     windowKey: windowKey,
+    classOfKey: classOfKey,
+    titleOfKey: titleOfKey,
+    sizeCompatible: sizeCompatible,
+    keysForClass: keysForClass,
+    hasClassEntry: hasClassEntry,
+    findPosition: findPosition,
     eventParts: eventParts,
     findMonitorByName: findMonitorByName,
     findMonitorById: findMonitorById,
