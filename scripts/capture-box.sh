@@ -11,6 +11,11 @@ notify() {
   omarchy-notification-send -u low -g "󰗡" "OmaFloat" "$1" >/dev/null 2>&1 || true
 }
 
+# Notification bodies honour markup — strip angle brackets from window titles.
+plain_label() {
+  printf '%s' "${1-}" | tr -d '<>'
+}
+
 # Toggle-off if a previous picker is still up.
 if pgrep -x slurp >/dev/null 2>&1; then
   pkill -x slurp >/dev/null 2>&1 || true
@@ -24,6 +29,7 @@ ADDR=$(jq -r '.address // empty' <<<"$ACTIVE")
 KEY=$(jq -r '
   def sanitize:
     gsub("::"; " - ")
+    | gsub("[<>]"; "")
     | gsub("\\s+"; " ")
     | gsub("^\\s+|\\s+$"; "")
     | if length > 120 then .[0:120] else . end;
@@ -141,4 +147,4 @@ tmp.replace(state_path)
 print(key)
 PY
 
-notify "Saved safe layout for $KEY"
+notify "Saved safe layout for $(plain_label "$KEY")"

@@ -36,6 +36,11 @@ Item {
     notifyProc.running = true
   }
 
+  // Notification bodies use StyledText markup — strip angle brackets from app titles.
+  function plainNotifyLabel(value) {
+    return String(value || "").replace(/[<>]/g, "")
+  }
+
   function runBash(script) {
     if (!script) return
     if (bashProc.running) {
@@ -95,13 +100,13 @@ Item {
     syncStoreFromDisk()
     if (!Store.getPosition(root.store, id)) {
       root.lastEvent = "forget-missing:" + id
-      notify("Nothing remembered for " + id)
+      notify("Nothing remembered for " + plainNotifyLabel(id))
       return "missing"
     }
     root.store = Store.forgetPosition(root.store, id)
     persistStore()
     root.lastEvent = "forget:" + id
-    notify("Forgot " + id)
+    notify("Forgot " + plainNotifyLabel(id))
     return "ok"
   }
 
@@ -121,7 +126,7 @@ Item {
     root.store = Store.upsertPosition(root.store, record.key, record)
     persistStore()
     root.capturePhase = "idle"
-    notify("Saved safe layout for " + record.key)
+    notify("Saved safe layout for " + plainNotifyLabel(record.key))
     root.lastEvent = "commit:" + record.key
     return "ok"
   }

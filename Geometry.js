@@ -16,6 +16,8 @@ function sanitizeTitle(title) {
   var text = String(title || "")
   // Keep keys JSON-safe and avoid colliding with the class::title separator.
   text = text.replace(/::/g, " - ")
+  // Drop markup delimiters so titles cannot feed rich-text sinks later.
+  text = text.replace(/[<>]/g, "")
   text = text.replace(/\s+/g, " ").trim()
   if (!text) return ""
   if (text.length > 120) text = text.slice(0, 120)

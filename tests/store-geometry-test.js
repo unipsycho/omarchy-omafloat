@@ -81,6 +81,10 @@ assert.strictEqual(
   Geometry.windowKey({ class: "KeePassXC", title: "  Passwords :: Home  " }),
   "KeePassXC::Passwords - Home"
 )
+assert.strictEqual(
+  Geometry.windowKey({ class: "Evil", title: '<img src="http://x/y">' }),
+  "Evil::img src=\"http://x/y\""
+)
 assert.strictEqual(Geometry.classOfKey("org.mozilla.Thunderbird::Dentist"), "org.mozilla.Thunderbird")
 assert.strictEqual(Geometry.titleOfKey("org.mozilla.Thunderbird::Dentist"), "Dentist")
 

@@ -100,13 +100,18 @@ Panel {
     return idx === -1 ? "" : id.slice(idx + 2)
   }
 
+  // Drop angle brackets so app-controlled titles cannot feed rich-text sinks.
+  function plainLabel(value) {
+    return String(value || "").replace(/[<>]/g, "")
+  }
+
   function displayNameFor(key) {
     var cls = classOfKey(key)
     var title = titleOfKey(key)
     var entry = desktopEntryFor(cls)
     var appName = entry && entry.name ? String(entry.name) : (cls || String(key || ""))
-    if (title) return appName + " — " + title
-    return appName
+    if (title) return plainLabel(appName + " — " + title)
+    return plainLabel(appName)
   }
 
   function desktopEntryFor(key) {
@@ -302,6 +307,8 @@ Panel {
 
               Text {
                 width: parent.width
+                // Window titles are app-controlled — never AutoText/rich text.
+                textFormat: Text.PlainText
                 text: root.displayNameFor(modelData.key)
                 elide: Text.ElideRight
                 color: root.contentForeground
@@ -312,6 +319,7 @@ Panel {
 
               Text {
                 width: parent.width
+                textFormat: Text.PlainText
                 text: root.summaryFor(modelData)
                 elide: Text.ElideRight
                 color: root.contentForeground
@@ -326,7 +334,8 @@ Panel {
               Layout.preferredHeight: Style.bar.iconSlot
               bar: root.bar
               text: "󰧧"
-              tooltipText: "Forget " + modelData.key
+              // Tooltip path uses PanelToolTip PlainText; still strip markup from the key.
+              tooltipText: "Forget " + root.plainLabel(modelData.key)
               slotSize: Style.bar.iconSlot
               fontSize: Style.font.caption
               onPressed: function(buttonCode) {
