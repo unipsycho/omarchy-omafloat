@@ -29,6 +29,11 @@ Item {
   property string pendingRestoreAddress: ""
   property string pendingRestoreClass: ""
   property string pendingRestoreTitle: ""
+  property var matchLog: []
+  readonly property int matchLogLimit: 40
+  // address → { className, title, attempts } for delayed / title-change retries
+  property var restoreQueue: ({})
+  readonly property int maxRestoreAttempts: 3
 
   function notify(message) {
     if (notifyProc.running) return
@@ -85,8 +90,38 @@ Item {
       path: root.statePath,
       count: Store.listPositions(root.store).length,
       capturePhase: root.capturePhase,
-      lastEvent: root.lastEvent
+      lastEvent: root.lastEvent,
+      matchLog: root.matchLog
     })
+  }
+
+  function matchLogJson() {
+    return JSON.stringify(root.matchLog)
+  }
+
+  // Keep a short ring of restore decisions for debugging missed pop-ups.
+  function pushMatchLog(explained, address, attempt) {
+    var line = Geometry.formatMatchExplain(explained)
+    var entry = {
+      at: Math.floor(Date.now() / 1000),
+      address: Geometry.normalizeAddress(address) || "",
+      attempt: Number(attempt) || 0,
+      line: line,
+      result: explained && explained.match ? "restore" : "skip",
+      reason: (explained && explained.reason) || "",
+      className: (explained && explained.className) || "",
+      title: (explained && explained.title) || "",
+      role: (explained && explained.role) || "",
+      live: (explained && explained.live) || {},
+      matchedKey: explained && explained.match ? explained.match.key : "",
+      candidates: (explained && explained.candidates) || []
+    }
+    var next = root.matchLog.slice()
+    next.unshift(entry)
+    if (next.length > root.matchLogLimit) next = next.slice(0, root.matchLogLimit)
+    root.matchLog = next
+    root.lastEvent = line
+    console.log("omafloat:", line)
   }
 
   function forgetKey(key) {
@@ -120,7 +155,7 @@ Item {
     try { client = JSON.parse(clientText) } catch (e1) { return "no-window" }
     try { monitors = JSON.parse(monitorsText) } catch (e2) { monitors = [] }
 
-    var record = Geometry.recordFromClient(client, monitors)
+    var record = Geometry.recordFromClientInStore(root.store, client, monitors)
     if (!record || !record.key) return "no-key"
 
     root.store = Store.upsertPosition(root.store, record.key, record)
@@ -131,15 +166,69 @@ Item {
     return "ok"
   }
 
-  function restoreAddress(address, className, title) {
+  function clearRestoreQueueEntry(address) {
+    var addr = Geometry.normalizeAddress(address)
+    if (!addr || !root.restoreQueue[addr]) return
+    var next = ({})
+    for (var key in root.restoreQueue) {
+      if (key !== addr) next[key] = root.restoreQueue[key]
+    }
+    root.restoreQueue = next
+  }
+
+  function queueRestore(address, className, title, resetAttempts) {
     var cls = String(className || "").trim()
     var addr = Geometry.normalizeAddress(address)
     if (!cls || !addr) return
     if (!Geometry.hasClassEntry(root.store, cls)) return
+
+    var prev = root.restoreQueue[addr]
+    var attempts = (prev && !resetAttempts) ? (Number(prev.attempts) || 0) : 0
+    var next = ({})
+    for (var key in root.restoreQueue) next[key] = root.restoreQueue[key]
+    next[addr] = {
+      className: cls,
+      title: Geometry.sanitizeTitle(title) || (prev && prev.title) || "",
+      attempts: attempts
+    }
+    root.restoreQueue = next
+
     root.pendingRestoreAddress = addr
     root.pendingRestoreClass = cls
-    root.pendingRestoreTitle = Geometry.sanitizeTitle(title)
+    root.pendingRestoreTitle = next[addr].title
+    restoreTimer.interval = 120
     restoreTimer.restart()
+  }
+
+  function scheduleRestoreRetry(address) {
+    var addr = Geometry.normalizeAddress(address)
+    var meta = root.restoreQueue[addr]
+    if (!meta) return
+    if ((Number(meta.attempts) || 0) >= root.maxRestoreAttempts) {
+      root.clearRestoreQueueEntry(addr)
+      return
+    }
+    root.pendingRestoreAddress = addr
+    root.pendingRestoreClass = meta.className
+    root.pendingRestoreTitle = meta.title
+    // Give wallets/mail time to map real size and settle their title.
+    restoreTimer.interval = 350 * Math.max(1, Number(meta.attempts) || 1)
+    restoreTimer.restart()
+  }
+
+  function bumpRestoreAttempt(address) {
+    var addr = Geometry.normalizeAddress(address)
+    var meta = root.restoreQueue[addr]
+    if (!meta) return 0
+    var next = ({})
+    for (var key in root.restoreQueue) next[key] = root.restoreQueue[key]
+    next[addr] = {
+      className: meta.className,
+      title: meta.title,
+      attempts: (Number(meta.attempts) || 0) + 1
+    }
+    root.restoreQueue = next
+    return next[addr].attempts
   }
 
   function runPendingRestore() {
@@ -168,35 +257,75 @@ Item {
     try { monitors = JSON.parse(monitorsText) } catch (e2) { return }
     if (!client || !Geometry.isValidAddress(client.address)) return
 
+    var addr = Geometry.normalizeAddress(client.address)
     syncStoreFromDisk()
     var cls = String(className || Geometry.windowClass(client) || "").trim()
     var wantTitle = Geometry.sanitizeTitle(title) || Geometry.windowTitle(client)
-    var match = Geometry.findPosition(root.store, cls, wantTitle, client.size)
+    // Keep the latest live title on the retry queue.
+    if (root.restoreQueue[addr]) {
+      var queued = ({})
+      for (var key in root.restoreQueue) queued[key] = root.restoreQueue[key]
+      queued[addr] = {
+        className: cls || queued[addr].className,
+        title: wantTitle || queued[addr].title,
+        attempts: queued[addr].attempts
+      }
+      root.restoreQueue = queued
+    }
+
+    var mon = Geometry.findMonitorById(monitors, client.monitor) || Geometry.focusedMonitor(monitors)
+    var monSize = Geometry.monitorLogicalSize(mon)
+    var explained = Geometry.explainFindPosition(root.store, cls, wantTitle, client.size, monSize)
+    var meta = root.restoreQueue[addr]
+    var attempt = meta ? (Number(meta.attempts) || 0) : 0
+    root.pushMatchLog(explained, addr, attempt)
+
+    var match = explained.match
     if (!match || !match.record) {
-      root.lastEvent = "restore-skipped:" + (Geometry.windowKey(client) || cls)
+      var attempts = root.bumpRestoreAttempt(addr)
+      if (attempts > 0 && attempts < root.maxRestoreAttempts)
+        root.scheduleRestoreRetry(addr)
+      else
+        root.clearRestoreQueueEntry(addr)
       return
     }
     var placement = Geometry.resolvePlacement(match.record, monitors)
-    if (!placement) return
+    if (!placement) {
+      root.clearRestoreQueueEntry(addr)
+      return
+    }
 
     var script = Geometry.applyScript(client.address, placement, !!client.floating)
-    if (!script) return
+    if (!script) {
+      root.clearRestoreQueueEntry(addr)
+      return
+    }
     runBash(script)
-    root.lastEvent = "restore:" + match.key
+    root.clearRestoreQueueEntry(addr)
   }
 
   function handleHyprlandEvent(event) {
     var name = String(event && event.name ? event.name : "")
-    if (name !== "openwindow") return
-    var parts = Geometry.eventParts(event, 4)
-    var address = Geometry.normalizeAddress(parts[0] || "")
-    var className = String(parts[2] || "")
-    var title = String(parts[3] || "")
-    if (!address || !className) return
-    // Re-read disk before restore so panel/script forgets are never skipped.
-    syncStoreFromDisk()
-    if (!Geometry.hasClassEntry(root.store, className)) return
-    restoreAddress(address, className, title)
+    if (name === "openwindow") {
+      var parts = Geometry.eventParts(event, 4)
+      var address = Geometry.normalizeAddress(parts[0] || "")
+      var className = String(parts[2] || "")
+      var title = String(parts[3] || "")
+      if (!address || !className) return
+      // Re-read disk before restore so panel/script forgets are never skipped.
+      syncStoreFromDisk()
+      root.queueRestore(address, className, title, true)
+      return
+    }
+    // Titles often settle after open (wallets, mail) — retry while still queued.
+    if (name === "windowtitle") {
+      var titleParts = Geometry.eventParts(event, 2)
+      var titleAddr = Geometry.normalizeAddress(titleParts[0] || "")
+      var newTitle = String(titleParts[1] || "")
+      if (!titleAddr || !root.restoreQueue[titleAddr]) return
+      var meta = root.restoreQueue[titleAddr]
+      root.queueRestore(titleAddr, meta.className, newTitle || meta.title, false)
+    }
   }
 
   function startCapture() {
@@ -334,7 +463,7 @@ Item {
 
   Timer {
     id: restoreTimer
-    // Give dialogs a moment to map their real size before the size gate runs.
+    // First pass is quick; retries stretch the interval in scheduleRestoreRetry.
     interval: 120
     repeat: false
     onTriggered: root.runPendingRestore()
@@ -394,6 +523,10 @@ Item {
 
     function status(): string {
       return root.statusJson()
+    }
+
+    function matchLog(): string {
+      return root.matchLogJson()
     }
   }
 }

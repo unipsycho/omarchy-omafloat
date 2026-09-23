@@ -97,27 +97,100 @@ assert.ok(Geometry.hasClassEntry(multi, "org.mozilla.Thunderbird"))
 assert.ok(!Geometry.hasClassEntry(multi, "org.kde.dolphin"))
 
 // Exact title wins.
-let hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Team standup", [510, 410])
+let hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Team standup", [510, 410], { width: 1920, height: 1080 })
 assert.strictEqual(hit.key, "org.mozilla.Thunderbird::Team standup")
 
 // Different reminder title still maps to the closest size-compatible sibling.
-hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Dentist", [520, 390])
+hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Dentist", [520, 390], { width: 1920, height: 1080 })
 assert.strictEqual(hit.key, "org.mozilla.Thunderbird::Team standup")
 
-// Main Thunderbird window is much larger — size gate skips all restores.
-hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Inbox", [1600, 1000])
+// Fuzzy title prefers the matching wallet-style subject among similar sizes.
+const walletA = { monitor: "DP-1", x: 40, y: 40, w: 420, h: 640, pinned: false, updatedAt: 100 }
+const walletB = { monitor: "DP-1", x: 40, y: 40, w: 430, h: 650, pinned: false, updatedAt: 200 }
+let wallets = Store.emptyStore()
+wallets = Store.upsertPosition(wallets, "Brave-browser::Confirm transaction", walletA)
+wallets = Store.upsertPosition(wallets, "Brave-browser::Signature request", walletB)
+hit = Geometry.findPosition(
+  wallets,
+  "Brave-browser",
+  "Confirm transaction - Account 2",
+  [425, 645],
+  { width: 1920, height: 1080 }
+)
+assert.strictEqual(hit.key, "Brave-browser::Confirm transaction")
+
+// Main Thunderbird window is much larger — size gate / popup role skips restores.
+hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Inbox", [1600, 1000], { width: 1920, height: 1080 })
 assert.strictEqual(hit, null)
+assert.strictEqual(Geometry.popupRole([1600, 1000], { width: 1920, height: 1080 }), "main")
+assert.strictEqual(Geometry.popupRole([500, 400], { width: 1920, height: 1080 }), "popup")
+
+// Distinct compose vs reminder sizes stay as separate layouts.
+hit = Geometry.findPosition(multi, "org.mozilla.Thunderbird", "Re: hello", [910, 710], { width: 1920, height: 1080 })
+assert.strictEqual(hit.key, "org.mozilla.Thunderbird::Write")
 
 // Legacy bare class key still works for similarly sized windows.
 let legacy = Store.emptyStore()
 legacy = Store.upsertPosition(legacy, "org.mozilla.Thunderbird", reminder)
-hit = Geometry.findPosition(legacy, "org.mozilla.Thunderbird", "Anything", [500, 400])
+hit = Geometry.findPosition(legacy, "org.mozilla.Thunderbird", "Anything", [500, 400], { width: 1920, height: 1080 })
 assert.strictEqual(hit.key, "org.mozilla.Thunderbird")
-hit = Geometry.findPosition(legacy, "org.mozilla.Thunderbird", "Inbox", [1800, 1100])
+hit = Geometry.findPosition(legacy, "org.mozilla.Thunderbird", "Inbox", [1800, 1100], { width: 1920, height: 1080 })
 assert.strictEqual(hit, null)
 
 assert.ok(Geometry.sizeCompatible(reminder, [500, 400]))
 assert.ok(!Geometry.sizeCompatible(reminder, [1600, 1000]))
+assert.ok(Geometry.titleFuzzyScore("Confirm transaction Account 1", "Confirm transaction Account 2") > 0.4)
+assert.ok(Geometry.areasSimilar(500 * 400, 520 * 390))
+assert.ok(!Geometry.areasSimilar(500 * 400, 900 * 700))
+
+const explained = Geometry.explainFindPosition(
+  multi, "org.mozilla.Thunderbird", "Dentist", [520, 390], { width: 1920, height: 1080 }
+)
+assert.strictEqual(explained.match.key, "org.mozilla.Thunderbird::Team standup")
+assert.strictEqual(explained.reason, "sibling")
+assert.ok(explained.candidates.length >= 2)
+assert.ok(Geometry.formatMatchExplain(explained).indexOf("restore") === 0)
+
+const skipped = Geometry.explainFindPosition(
+  multi, "org.mozilla.Thunderbird", "Inbox", [1600, 1000], { width: 1920, height: 1080 }
+)
+assert.strictEqual(skipped.match, null)
+assert.strictEqual(skipped.reason, "main-skip")
+assert.ok(Geometry.formatMatchExplain(skipped).indexOf("skip") === 0)
+
+// Wallet/extension class: only popup saves exist — force-shrink a huge tiled open.
+const rabbyClass = "brave-acmacodkjbdgmoleebolmdjonilkdbch-Default"
+const rabbySave = { monitor: "DP-1", x: 2600, y: 80, w: 375, h: 911, pinned: false, updatedAt: 100 }
+let rabby = Store.emptyStore()
+rabby = Store.upsertPosition(rabby, rabbyClass + "::_crx_acmacodkjbdgmoleebolmdjonilkdbch", rabbySave)
+rabby = Store.upsertPosition(rabby, rabbyClass, rabbySave)
+const walletOpen = Geometry.explainFindPosition(
+  rabby,
+  rabbyClass,
+  "Rabby Wallet Notification",
+  [1517, 1678],
+  { width: 3072, height: 1728 }
+)
+assert.ok(walletOpen.match, "wallet should force-restore")
+assert.ok(walletOpen.forceShrink)
+assert.ok(walletOpen.reason === "bare-class" || walletOpen.reason === "crx-title")
+assert.strictEqual(walletOpen.match.record.w, 375)
+
+// Saving a similar-sized dialog reuses the existing layout key.
+assert.strictEqual(
+  Geometry.resolveSaveKey(multi, {
+    initialClass: "org.mozilla.Thunderbird",
+    title: "Dental checkup"
+  }, [510, 405]),
+  "org.mozilla.Thunderbird::Team standup"
+)
+assert.strictEqual(
+  Geometry.resolveSaveKey(multi, {
+    initialClass: "org.mozilla.Thunderbird",
+    title: "Write: New"
+  }, [905, 695]),
+  "org.mozilla.Thunderbird::Write"
+)
 
 const titledClient = {
   initialClass: "org.mozilla.Thunderbird",
@@ -128,5 +201,7 @@ const titledClient = {
 }
 const titledRec = Geometry.recordFromClient(titledClient, mons)
 assert.strictEqual(titledRec.key, "org.mozilla.Thunderbird::Alarm")
+const reused = Geometry.recordFromClientInStore(multi, titledClient, mons)
+assert.strictEqual(reused.key, "org.mozilla.Thunderbird::Team standup")
 
 console.log("ok")

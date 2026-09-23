@@ -76,13 +76,17 @@ When a window opens, OmaFloat looks up a remembered layout for that app and —
 if the live window is still in the same size class as the save — floats it back
 to the remembered monitor-relative size and position.
 
-Keys are `class::title` when the window has a title (so Thunderbird reminders
-can be remembered separately from the main Thunderbird window). Legacy bare
-`class` keys still work. If the exact title is not found (event names change),
-OmaFloat falls back to the closest size-compatible layout for that class.
+Matching rules:
 
-A size gate skips restores when the new window is clearly much larger than the
-saved popup — so a reminder layout will not shrink the main app window.
+- Keys are `class::title` when captured (so different dialog *styles* can diverge).
+- Changing subjects (wallet prompts, email titles) **reuse** a size-similar layout
+  instead of creating a new entry.
+- Restore prefers an exact title, then fuzzy title tokens among similar sizes,
+  then the closest size-compatible sibling for that class.
+- Windows larger than ~55% of the monitor are treated as **main** and never
+  inherit a small pop-up layout.
+- Pop-ups (≲40% of the monitor) get a looser size gate and a couple of delayed
+  retries (including on `windowtitle`) so late-mapped dialogs still snap in.
 
 ## IPC
 
@@ -92,10 +96,16 @@ omarchy-shell agileautomation.omafloat commit
 omarchy-shell agileautomation.omafloat cancel
 omarchy-shell agileautomation.omafloat list
 omarchy-shell agileautomation.omafloat status
+omarchy-shell agileautomation.omafloat matchLog
 omarchy-shell agileautomation.omafloat forget
 omarchy-shell agileautomation.omafloat forgetKey org.kde.dolphin
 ```
 
+`matchLog` (also included in `status`) is a short ring of recent restore
+decisions: live class/title/size, popup role, why it restored or skipped, and
+the remembered candidates considered (with reject reason / fuzzy score). Use it
+to see why a pop-up did not snap — e.g. `main-skip`, `size`, `none-accepted`,
+or which sibling would have been a better fuzzy match.
 ## Validate
 
 ```bash

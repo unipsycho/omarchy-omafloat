@@ -92,7 +92,7 @@ hypr_dispatch "hl.dsp.window.resize({ window = \"$WINDOW\", x = $W, y = $H })" r
 hypr_dispatch "hl.dsp.window.move({ window = \"$WINDOW\", x = $X, y = $Y })" movewindowpixel exact "$X" "$Y" "$WINDOW"
 
 # Persist monitor-relative geometry so restore survives reboot / monitor moves.
-python3 - "$STATE_FILE" "$KEY" "$X" "$Y" "$W" "$H" "$PINNED" <<'PY'
+SAVED_KEY=$(python3 - "$STATE_FILE" "$KEY" "$X" "$Y" "$W" "$H" "$PINNED" <<'PY'
 import json, sys, time
 from pathlib import Path
 
@@ -131,6 +131,30 @@ if state_path.exists():
     except Exception:
         store = {"version": 1, "positions": {}}
 
+# Reuse a size-similar layout for this class so changing titles share one box.
+def class_of(k):
+    return k.split("::", 1)[0] if "::" in k else k
+
+cls = class_of(key)
+live_area = max(1, w * h)
+similar_key = None
+similar_delta = None
+for existing_key, rec in list(store.get("positions", {}).items()):
+    if not isinstance(rec, dict):
+        continue
+    if class_of(existing_key) != cls:
+        continue
+    saved = max(1, int(rec.get("w") or 0) * int(rec.get("h") or 0))
+    lo, hi = (saved, live_area) if saved <= live_area else (live_area, saved)
+    if hi > lo * 1.65:
+        continue
+    delta = abs(saved - live_area)
+    if similar_delta is None or delta < similar_delta:
+        similar_key = existing_key
+        similar_delta = delta
+if similar_key:
+    key = similar_key
+
 store["positions"][key] = {
     "monitor": mon_name,
     "x": gx - mx,
@@ -146,5 +170,6 @@ tmp.write_text(json.dumps(store, indent=2) + "\n")
 tmp.replace(state_path)
 print(key)
 PY
+)
 
-notify "Saved safe layout for $(plain_label "$KEY")"
+notify "Saved safe layout for $(plain_label "${SAVED_KEY:-$KEY}")"
